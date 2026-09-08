@@ -1,130 +1,173 @@
 import { Link } from 'react-router-dom';
-import { BookOpen, FileText, Megaphone, Bot, ArrowRight, Zap } from 'lucide-react';
+import { ArrowDown, ArrowRight, BookOpen, Brain, Database, Code2, Layers3, Network } from 'lucide-react';
+
+const books = [
+  { title: 'ALGORITHMS', color: '#c7a4d8', left: '5%', top: '17%', rotate: '-12deg', scale: 0.88 },
+  { title: 'PYTHON', color: '#9dbfd6', left: '15%', top: '57%', rotate: '8deg', scale: 1 },
+  { title: 'DATABASE', color: '#e6a1b8', left: '27%', top: '12%', rotate: '-5deg', scale: 0.92 },
+  { title: 'SYSTEMS', color: '#d9c3e6', left: '36%', top: '59%', rotate: '6deg', scale: 0.78 },
+  { title: 'NETWORKS', color: '#a8cadb', left: '55%', top: '10%', rotate: '10deg', scale: 0.83 },
+  { title: 'AI', color: '#ebc0ad', left: '66%', top: '57%', rotate: '-7deg', scale: 1.04 },
+  { title: 'WEB', color: '#c8d5db', left: '78%', top: '17%', rotate: '5deg', scale: 0.86 },
+  { title: 'SOFTWARE', color: '#d8b4c4', left: '88%', top: '62%', rotate: '-10deg', scale: 0.78 },
+];
+
+const features = [
+  { icon: BookOpen, title: 'Assignments', text: 'Keep every task, deadline and submission in one clear workspace.' },
+  { icon: Brain, title: 'Focus Today', text: 'See what deserves attention first instead of scanning a giant task list.' },
+  { icon: Database, title: 'Submission History', text: 'Submit files, keep versions and revisit your academic work anytime.' },
+  { icon: Network, title: 'Teacher Tracking', text: 'Give faculty a clear view of submitted, late and missing work.' },
+];
 
 export default function LandingPage() {
   return (
-    <div className="landing">
-      {/* Header */}
-      <header className="landing-header">
-        <div className="landing-logo">
-          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="8" fill="#6366f1" />
-            <path d="M9 16.5L14 21.5L23 11.5" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          TaskForge
-        </div>
-        <nav className="landing-nav">
+    <main className="landing-ref">
+      <div className="landing-ref-grain" aria-hidden="true" />
+
+      <header className="landing-ref-nav">
+        <Link to="/" className="landing-ref-brand" aria-label="TaskForge home">
+          <span className="landing-ref-logo-mark">TF</span>
+          <span>TaskForge</span>
+        </Link>
+
+        <nav className="landing-ref-links" aria-label="Primary navigation">
           <a href="#features">Features</a>
           <a href="#how-it-works">How It Works</a>
-          <Link to="/dashboard" className="btn btn-secondary btn-sm">Login</Link>
-          <Link to="/dashboard" className="btn btn-primary btn-sm">Get Started</Link>
+          <a href="#ai">AI</a>
+          <a href="#about">About</a>
         </nav>
+
+        <div className="landing-ref-actions">
+          <Link to="/dashboard" className="landing-ref-login">Sign in</Link>
+          <Link to="/dashboard" className="landing-ref-cta">
+            Get Started <ArrowRight size={15} />
+          </Link>
+        </div>
       </header>
 
-      {/* Hero */}
-      <section className="hero">
-        <h1>
-          Your academic life, <span>organized.</span>
-        </h1>
-        <p>
-          Track assignments, deadlines, notices and academic activity from one place. TaskForge helps you understand what needs attention first.
-        </p>
-        <div className="hero-ctas">
-          <Link to="/dashboard" className="btn btn-primary btn-lg">
-            Get Started
-            <ArrowRight size={20} />
-          </Link>
-          <a href="#how-it-works" className="btn btn-secondary btn-lg">
-            See How It Works
-          </a>
+      <section className="landing-ref-hero" id="about">
+        <div className="landing-ref-copy">
+          <p className="landing-ref-eyebrow">STUDENT ACADEMIC COMMAND CENTER</p>
+          <h1>
+            Take control
+            <br />
+            <span>of deadlines.</span>
+          </h1>
+          <p className="landing-ref-description">
+            Turn scattered assignments, submissions and academic updates into one calm, prioritized workflow.
+          </p>
+
+          <div className="landing-ref-hero-actions">
+            <Link to="/dashboard" className="landing-ref-primary">
+              Start with TaskForge <ArrowRight size={17} />
+            </Link>
+            <a href="#how-it-works" className="landing-ref-secondary">
+              See how it works
+            </a>
+          </div>
+        </div>
+
+        <div className="landing-ref-note">
+          <p>Built around one simple question:</p>
+          <strong>what should I work on next?</strong>
+        </div>
+
+        <div className="landing-ref-scene" aria-hidden="true">
+          <div className="landing-ref-glow landing-ref-glow-a" />
+          <div className="landing-ref-glow landing-ref-glow-b" />
+
+          <div className="landing-ref-books">
+            {books.map((book, index) => (
+              <div
+                key={book.title}
+                className="landing-ref-book"
+                style={{
+                  '--book-left': book.left,
+                  '--book-top': book.top,
+                  '--book-rotate': book.rotate,
+                  '--book-scale': book.scale,
+                  '--book-color': book.color,
+                  '--book-delay': `${index * 0.55}s`,
+                }}
+              >
+                <div className="landing-ref-book-spine" />
+                <div className="landing-ref-book-pages" />
+                <div className="landing-ref-book-cover">
+                  <span>{book.title}</span>
+                  <small>ACADEMIC SERIES</small>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="landing-ref-grid-lines" />
+        </div>
+
+        <a className="landing-ref-scroll" href="#features">
+          Explore TaskForge
+          <ArrowDown size={14} />
+        </a>
+      </section>
+
+      <section className="landing-ref-section" id="features">
+        <div className="landing-ref-section-head">
+          <div>
+            <p className="landing-ref-eyebrow">ONE WORKSPACE</p>
+            <h2>Everything academic, <em>in focus.</em></h2>
+          </div>
+          <p>Designed to reduce the mental load of keeping up with assignments, deadlines and submissions.</p>
+        </div>
+
+        <div className="landing-ref-feature-grid">
+          {features.map(({ icon: Icon, title, text }) => (
+            <article className="landing-ref-feature" key={title}>
+              <div className="landing-ref-feature-icon"><Icon size={18} /></div>
+              <span className="landing-ref-number">{String(features.findIndex(item => item.title === title) + 1).padStart(2, '0')}</span>
+              <h3>{title}</h3>
+              <p>{text}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      {/* Dashboard Preview */}
-      <div className="hero-preview">
-        <div className="hero-preview-placeholder">
-          <div style={{ textAlign: 'center' }}>
-            <Zap size={48} style={{ marginBottom: '12px', opacity: 0.6 }} />
-            <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700 }}>TaskForge Dashboard</div>
-            <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.7, marginTop: '4px' }}>Focus Today • Smart Priorities • Real-time Updates</div>
+      <section className="landing-ref-section landing-ref-how" id="how-it-works">
+        <div className="landing-ref-section-head">
+          <div>
+            <p className="landing-ref-eyebrow">THE WORKFLOW</p>
+            <h2>From scattered work to <em>done.</em></h2>
           </div>
         </div>
-      </div>
 
-      {/* Features */}
-      <section className="landing-features" id="features">
-        <h2>Everything you need to stay on track</h2>
-        <p>Powerful features designed for student productivity.</p>
-        <div className="features-grid">
-          <div className="feature-card">
-            <div className="feature-icon" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
-              <BookOpen size={24} />
+        <div className="landing-ref-steps">
+          {[
+            ['01', 'Collect', 'Bring assignments, deadlines and academic updates into a single place.'],
+            ['02', 'Prioritize', 'Focus Today ranks active work using urgency, priority and progress.'],
+            ['03', 'Submit', 'Upload your work, keep a version history and stay accountable.'],
+          ].map(([number, title, text]) => (
+            <div className="landing-ref-step" key={number}>
+              <span>{number}</span>
+              <div>
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </div>
             </div>
-            <h3>Subjects</h3>
-            <p>Organize your academic workload by subject. Track progress and identify urgent assignments at a glance.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon" style={{ background: 'var(--warning-light)', color: 'var(--warning)' }}>
-              <FileText size={24} />
-            </div>
-            <h3>Assignments</h3>
-            <p>Add, track, and complete assignments with smart deadline detection. Never miss a due date again.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon" style={{ background: 'var(--info-light)', color: 'var(--info)' }}>
-              <Megaphone size={24} />
-            </div>
-            <h3>Notice Board</h3>
-            <p>Stay updated with academic notices, exam schedules, and important announcements in one place.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon" style={{ background: 'var(--success-light)', color: 'var(--success)' }}>
-              <Bot size={24} />
-            </div>
-            <h3>AI Assistant</h3>
-            <p>Get contextual recommendations on what to work on next, powered by your actual assignment data.</p>
-          </div>
+          ))}
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="landing-how" id="how-it-works">
-        <div className="landing-how-inner">
-          <h2>How It Works</h2>
-          <div className="how-steps">
-            <div className="how-step">
-              <div className="how-step-number">01</div>
-              <h3>Organize</h3>
-              <p>Add your assignments, deadlines, and subjects. TaskForge centralizes everything in one place.</p>
-            </div>
-            <div className="how-step">
-              <div className="how-step-number">02</div>
-              <h3>Prioritize</h3>
-              <p>Focus Today automatically surfaces your most urgent work based on deadlines and priority.</p>
-            </div>
-            <div className="how-step">
-              <div className="how-step-number">03</div>
-              <h3>Complete</h3>
-              <p>Work through your priorities, mark assignments done, and track your academic progress.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Final CTA */}
-      <section className="landing-cta">
-        <h2>Take control of your academic workload</h2>
-        <p>Join students who use TaskForge to turn deadlines into done.</p>
-        <Link to="/dashboard" className="btn btn-primary btn-lg">
-          Get Started — It's Free
-          <ArrowRight size={20} />
+      <section className="landing-ref-final" id="ai">
+        <p className="landing-ref-eyebrow">TASKFORGE AI</p>
+        <h2>Your academic workload,<br /><em>made clearer.</em></h2>
+        <p>Ask what to work on first, find what you are behind on, or plan your week using the context already inside TaskForge.</p>
+        <Link to="/ai" className="landing-ref-primary">
+          Meet TaskForge AI <ArrowRight size={17} />
         </Link>
       </section>
 
-      {/* Footer */}
-      <footer className="landing-footer">
-        <p>© 2026 TaskForge. Built for students, by students.</p>
+      <footer className="landing-ref-footer">
+        <span>© 2026 TaskForge</span>
+        <span>Turn deadlines into done.</span>
       </footer>
-    </div>
+    </main>
   );
 }
