@@ -3,16 +3,20 @@ import os
 
 class Settings:
     PROJECT_NAME: str = "TaskForge API"
-    VERSION: str = "1.1.0"
+    VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     PORT: int = int(os.getenv("PORT", "8000"))
 
-    # Server-only Supabase credentials. Never expose the service-role key to React.
+    # Backend-only Supabase secret. Prefer the current Supabase "secret" key;
+    # the legacy service_role name remains supported for existing environments.
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SECRET_KEY: str = os.getenv("SUPABASE_SECRET_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
 
-    # Override in deployment with a comma-separated list when needed.
+    # Explicit demo mode is used when no Supabase credentials are configured.
+    # Do not silently downgrade a production deployment to demo mode.
+    DEMO_MODE: bool = bool(os.getenv("TASKFORGE_DEMO_MODE", "true").lower() == "true")
+
     CORS_ORIGINS: list[str] = [
         origin.strip()
         for origin in os.getenv(
