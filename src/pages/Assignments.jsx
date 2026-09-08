@@ -8,6 +8,7 @@ import AssignmentFilters from '../components/assignments/AssignmentFilters';
 import AssignmentModal from '../components/assignments/AssignmentModal';
 import EmptyState from '../components/common/EmptyState';
 import { can, ACTIONS as RBAC_ACTIONS } from '../permissions/rbac';
+import SubmissionHistory from '../components/assignments/SubmissionHistory';
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const STATUS_ORDER = { 'in-progress': 0, 'pending': 1, 'completed': 2 };
@@ -197,6 +198,8 @@ export default function Assignments() {
           }
         />
       )}
+
+      {!isTeacher && <SubmissionHistory />}
 
       <AssignmentModal
         isOpen={modalOpen}
