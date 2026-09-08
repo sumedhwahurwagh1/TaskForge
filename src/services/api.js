@@ -1,24 +1,15 @@
 /**
  * TaskForge Centralized API Service Layer
- * 
- * Handles all network requests to the FastAPI backend with clear separation between
- * Full-Stack API Mode and Demo Mode.
- * 
+ *
+ * Handles all network requests to the FastAPI backend.
+ *
  * SECURITY:
  * - Frontend NEVER contains SUPABASE_SERVICE_ROLE_KEY or private JWT secrets.
- * - Only safe client-side environment variables are accessed:
- *   - VITE_API_BASE_URL
- *   - VITE_SUPABASE_URL
- *   - VITE_SUPABASE_ANON_KEY
+ * - Only safe client-side environment variables are accessed.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
-/**
- * In-memory storage for active authentication token.
- * In full-stack mode, this is the Supabase JWT.
- * In demo mode, this is a simulated demo token (e.g. 'demo-token-student-alex').
- */
 let currentAuthToken = 'demo-token-student-alex';
 
 export function setAuthToken(token) {
@@ -30,38 +21,42 @@ export function getAuthToken() {
 }
 
 async function request(endpoint, options = {}) {
+  const isMultipart =
+    options.isMultipart === true ||
+    (typeof FormData !== 'undefined' && options.body instanceof FormData);
+
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isMultipart ? {} : { 'Content-Type': 'application/json' }),
     ...(currentAuthToken ? { Authorization: `Bearer ${currentAuthToken}` } : {}),
-    ...options.headers,
+    ...(options.headers || {}),
   };
 
+  const { isMultipart: _ignored, ...fetchOptions } = options;
+
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
+    ...fetchOptions,
     headers,
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    const error = new Error(errorData.detail || `Request failed with status ${response.status}`);
+    const error = new Error(
+      errorData.detail || `Request failed with status ${response.status}`
+    );
     error.status = response.status;
     error.detail = errorData.detail;
     throw error;
   }
 
-  // 204 No Content
   if (response.status === 204) return null;
-
   return response.json();
 }
 
 export const apiService = {
-  // Auth
   async getMe() {
     return request('/auth/me');
   },
 
-  // Assignments
   async getAssignments() {
     return request('/assignments');
   },
@@ -90,7 +85,6 @@ export const apiService = {
     });
   },
 
-  // Student Progress (Decoupled personal state)
   async updateStudentProgress(assignmentId, status) {
     return request(`/assignments/${assignmentId}/progress`, {
       method: 'PATCH',
@@ -98,7 +92,54 @@ export const apiService = {
     });
   },
 
-  // Subjects
+  async uploadSubmission(assignmentId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request(`/assignments/${assignmentId}/submissions`, {
+      method: 'POST',
+      body: formData,
+      isMultipart: true,
+    });
+  },
+
+  async getMyAssignmentSubmissions(assignmentId) {
+    return request(`/assignments/${assignmentId}/submissions/me`);
+  },
+
+  async getMySubmissions() {
+    return request('/submissions/me');
+  },
+
+  async getTeacherAssignmentSubmissions(assignmentId) {
+    return request(`/assignments/${assignmentId}/submissions`);
+  },
+
+  async getTeacherSubmissionSummary(assignmentId) {
+    return request(`/assignments/${assignmentId}/submission-summary`);
+  },
+
+  async downloadSubmission(id) {
+    const response = await fetch(`${API_BASE_URL}/submissions/${id}/download`, {
+      headers: currentAuthToken
+        ? { Authorization: `Bearer ${currentAuthToken}` }
+        : {},
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const error = new Error(
+        errorData.detail || `Download failed with status ${response.status}`
+      );
+      error.status = response.status;
+      throw error;
+    }
+
+    return {
+      blob: await response.blob(),
+      contentDisposition: response.headers.get('Content-Disposition') || '',
+    };
+  },
+
   async getSubjects() {
     return request('/subjects');
   },
