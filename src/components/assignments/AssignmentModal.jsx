@@ -6,6 +6,7 @@ import { DeadlineBadge, PriorityBadge } from '../common/Badge';
 import { formatDateTime, getRelativeDeadline } from '../../utils/deadlineEngine';
 import { can, ACTIONS as RBAC_ACTIONS } from '../../permissions/rbac';
 import { CheckCircle2, Clock, CircleDot, ShieldAlert, BookOpen, Calendar, User } from 'lucide-react';
+import SubmissionPanel from './SubmissionPanel';
 
 const EMPTY_FORM = {
   title: '',
@@ -241,6 +242,9 @@ function AssignmentModalContent({
               </div>
             </div>
           )}
+
+          {/* Student submission upload/history and teacher submission tracking */}
+          <SubmissionPanel assignment={assignment} />
         </div>
       </Modal>
     );
