@@ -51,7 +51,7 @@ export default function SubmissionPanel({ assignment }) {
       setError('');
       try {
         if (isStudent) {
-          const rows = await getMyAssignmentSubmissions(assignment.id);
+          const rows = await getMyAssignmentSubmissions(assignment.id, currentUser.id);
           if (!cancelled) setSubmissions(rows || []);
         } else if (isTeacher && canManage) {
           const data = await getTeacherSubmissionSummary(assignment.id, assignment);
