@@ -1,14 +1,21 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useReducer, useEffect, useMemo } from 'react';
+import { createContext, useContext, useReducer, useEffect, useMemo, useCallback } from 'react';
 import { loadState, saveState } from '../utils/storage';
-import { DEMO_USERS, SEED_ASSIGNMENTS, SEED_STUDENT_PROGRESS, SEED_NOTICES, SEED_NOTIFICATIONS } from '../data/seedData';
+import {
+  DEMO_USERS,
+  SEED_ASSIGNMENTS,
+  SEED_STUDENT_PROGRESS,
+  SEED_NOTICES,
+  SEED_NOTIFICATIONS,
+} from '../data/seedData';
 import { can, ACTIONS as RBAC_ACTIONS, ROLES } from '../permissions/rbac';
-import { setAuthToken } from '../services/api';
+import { apiService, setAuthToken } from '../services/api';
 
 const AppContext = createContext(null);
 
-const ACTIONS = {
+export const ACTIONS = {
   SWITCH_USER: 'SWITCH_USER',
+  HYDRATE_REMOTE: 'HYDRATE_REMOTE',
   ADD_ASSIGNMENT: 'ADD_ASSIGNMENT',
   UPDATE_ASSIGNMENT: 'UPDATE_ASSIGNMENT',
   DELETE_ASSIGNMENT: 'DELETE_ASSIGNMENT',
@@ -21,8 +28,43 @@ const ACTIONS = {
   CLEAR_TOAST: 'CLEAR_TOAST',
 };
 
+const DATA_MODE = (import.meta.env.VITE_DATA_MODE || 'demo').toLowerCase();
+const USE_API = DATA_MODE === 'api';
+
 function generateId(prefix = 'tf') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
+function normalizeStatus(status) {
+  const value = String(status || 'NOT_STARTED').toUpperCase();
+  if (value === 'COMPLETED') return 'completed';
+  if (value === 'IN_PROGRESS') return 'in-progress';
+  return 'pending';
+}
+
+function mapAssignmentFromApi(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    subject: row.subject_id,
+    createdBy: row.created_by,
+    description: row.description || '',
+    dueDate: row.due_date,
+    priority: String(row.priority || 'MEDIUM').toLowerCase(),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    progressStatus: row.progress?.status ? normalizeStatus(row.progress.status) : undefined,
+  };
+}
+
+function mapAssignmentToApi(payload) {
+  return {
+    title: payload.title,
+    subject_id: payload.subject,
+    description: payload.description || '',
+    due_date: payload.dueDate,
+    priority: String(payload.priority || 'medium').toUpperCase(),
+  };
 }
 
 function getInitialState() {
@@ -30,22 +72,18 @@ function getInitialState() {
   const initialUserKey = savedUserKey && DEMO_USERS[savedUserKey] ? savedUserKey : 'student';
   const currentUser = DEMO_USERS[initialUserKey];
 
-  // Set initial token for API requests
-  setAuthToken(`demo-token-${currentUser.role.toLowerCase()}-${currentUser.id}`);
-
-  const savedAssignments = loadState('assignments_v2');
-  const savedProgress = loadState('student_progress_v2');
-  const savedNotifications = loadState('notifications_v2');
-  const savedNotices = loadState('notices_v2');
+  setAuthToken(`demo-token-${currentUser.role.toLowerCase()}-${currentUser.id.replace('usr-', '')}`);
 
   return {
-    isDemoMode: true,
+    isDemoMode: !USE_API,
+    dataMode: USE_API ? 'api' : 'demo',
+    isHydrating: USE_API,
     currentUserKey: initialUserKey,
     currentUser,
-    assignments: savedAssignments || SEED_ASSIGNMENTS,
-    studentProgress: savedProgress || SEED_STUDENT_PROGRESS,
-    notifications: savedNotifications || SEED_NOTIFICATIONS,
-    notices: savedNotices || SEED_NOTICES,
+    assignments: loadState('assignments_v2') || SEED_ASSIGNMENTS,
+    studentProgress: loadState('student_progress_v2') || SEED_STUDENT_PROGRESS,
+    notifications: loadState('notifications_v2') || SEED_NOTIFICATIONS,
+    notices: loadState('notices_v2') || SEED_NOTICES,
     toast: null,
   };
 }
@@ -53,17 +91,16 @@ function getInitialState() {
 function appReducer(state, action) {
   switch (action.type) {
     case ACTIONS.SWITCH_USER: {
-      const userKey = action.payload;
-      const targetUser = DEMO_USERS[userKey];
+      const targetUser = DEMO_USERS[action.payload];
       if (!targetUser) return state;
 
-      // Update API token
-      setAuthToken(`demo-token-${targetUser.role.toLowerCase()}-${targetUser.id}`);
+      setAuthToken(`demo-token-${targetUser.role.toLowerCase()}-${targetUser.id.replace('usr-', '')}`);
 
       return {
         ...state,
-        currentUserKey: userKey,
+        currentUserKey: action.payload,
         currentUser: targetUser,
+        isHydrating: USE_API,
         toast: {
           message: `Switched to ${targetUser.name} (${targetUser.role === ROLES.TEACHER ? '👨‍🏫 Teacher' : '🎓 Student'})`,
           type: 'info',
@@ -71,9 +108,19 @@ function appReducer(state, action) {
       };
     }
 
+    case ACTIONS.HYDRATE_REMOTE: {
+      return {
+        ...state,
+        assignments: action.payload.assignments,
+        studentProgress: action.payload.studentProgress,
+        isHydrating: false,
+      };
+    }
+
     case ACTIONS.ADD_ASSIGNMENT: {
-      // Enforce RBAC
-      if (!can(state.currentUser, RBAC_ACTIONS.ASSIGNMENT_CREATE, { subjectId: action.payload.subject })) {
+      if (!can(state.currentUser, RBAC_ACTIONS.ASSIGNMENT_CREATE, {
+        subjectId: action.payload.subject,
+      })) {
         return {
           ...state,
           toast: {
@@ -83,7 +130,8 @@ function appReducer(state, action) {
         };
       }
 
-      const newAssignment = {
+      const server = action.serverRecord;
+      const newAssignment = server || {
         ...action.payload,
         id: generateId('asg'),
         createdBy: state.currentUser.id,
@@ -91,7 +139,6 @@ function appReducer(state, action) {
         updatedAt: new Date().toISOString(),
       };
 
-      // Ensure status is NOT stored on the shared assignment record
       delete newAssignment.status;
 
       const newNotification = {
@@ -106,7 +153,7 @@ function appReducer(state, action) {
 
       return {
         ...state,
-        assignments: [newAssignment, ...state.assignments],
+        assignments: [newAssignment, ...state.assignments.filter(a => a.id !== newAssignment.id)],
         notifications: [newNotification, ...state.notifications],
         toast: { message: 'Assignment created successfully!', type: 'success' },
       };
@@ -118,7 +165,6 @@ function appReducer(state, action) {
         return { ...state, toast: { message: 'Assignment not found.', type: 'error' } };
       }
 
-      // Enforce RBAC (Teacher must be authorized for this subject)
       if (!can(state.currentUser, RBAC_ACTIONS.ASSIGNMENT_UPDATE, { assignment: existing })) {
         return {
           ...state,
@@ -129,14 +175,15 @@ function appReducer(state, action) {
         };
       }
 
-      const updatedPayload = { ...action.payload, updatedAt: new Date().toISOString() };
-      delete updatedPayload.status; // Cannot set student status here
+      const updated = action.serverRecord || {
+        ...existing,
+        ...action.payload,
+        updatedAt: new Date().toISOString(),
+      };
 
       return {
         ...state,
-        assignments: state.assignments.map(a =>
-          a.id === action.payload.id ? { ...a, ...updatedPayload } : a
-        ),
+        assignments: state.assignments.map(a => (a.id === updated.id ? updated : a)),
         toast: { message: 'Assignment updated successfully!', type: 'success' },
       };
     }
@@ -145,7 +192,6 @@ function appReducer(state, action) {
       const existing = state.assignments.find(a => a.id === action.payload);
       if (!existing) return state;
 
-      // Enforce RBAC
       if (!can(state.currentUser, RBAC_ACTIONS.ASSIGNMENT_DELETE, { assignment: existing })) {
         return {
           ...state,
@@ -159,7 +205,6 @@ function appReducer(state, action) {
       return {
         ...state,
         assignments: state.assignments.filter(a => a.id !== action.payload),
-        // Clean up any progress records for the deleted assignment
         studentProgress: state.studentProgress.filter(p => p.assignmentId !== action.payload),
         toast: { message: 'Assignment deleted.', type: 'info' },
       };
@@ -167,8 +212,6 @@ function appReducer(state, action) {
 
     case ACTIONS.UPDATE_STUDENT_PROGRESS: {
       const { assignmentId, status } = action.payload;
-
-      // Enforce RBAC: Student can update ONLY their own progress
       if (!can(state.currentUser, RBAC_ACTIONS.PROGRESS_UPDATE_SELF, { studentId: state.currentUser.id })) {
         return {
           ...state,
@@ -179,41 +222,34 @@ function appReducer(state, action) {
         };
       }
 
+      const normalized = normalizeStatus(status);
+      const dbStatus = normalized === 'completed'
+        ? 'COMPLETED'
+        : normalized === 'in-progress'
+          ? 'IN_PROGRESS'
+          : 'NOT_STARTED';
       const existingIndex = state.studentProgress.findIndex(
         p => p.studentId === state.currentUser.id && p.assignmentId === assignmentId
       );
+      const record = {
+        studentId: state.currentUser.id,
+        assignmentId,
+        status: dbStatus,
+        updatedAt: new Date().toISOString(),
+      };
 
-      let updatedProgress;
-      const now = new Date().toISOString();
-
-      if (existingIndex >= 0) {
-        updatedProgress = [...state.studentProgress];
-        updatedProgress[existingIndex] = {
-          ...updatedProgress[existingIndex],
-          status,
-          updatedAt: now,
-        };
-      } else {
-        updatedProgress = [
-          ...state.studentProgress,
-          {
-            studentId: state.currentUser.id,
-            assignmentId,
-            status,
-            updatedAt: now,
-          },
-        ];
-      }
+      const updatedProgress = [...state.studentProgress];
+      if (existingIndex >= 0) updatedProgress[existingIndex] = record;
+      else updatedProgress.push(record);
 
       const assignment = state.assignments.find(a => a.id === assignmentId);
-      const isCompleted = status === 'completed';
-
+      const isCompleted = normalized === 'completed';
       const notification = isCompleted && assignment ? {
         id: generateId('notif'),
         type: 'completion',
         title: 'Assignment Completed! 🎉',
         description: `You completed "${assignment.title}". Great job!`,
-        timestamp: now,
+        timestamp: record.updatedAt,
         read: false,
         link: '/assignments',
       } : null;
@@ -221,55 +257,39 @@ function appReducer(state, action) {
       return {
         ...state,
         studentProgress: updatedProgress,
-        notifications: notification
-          ? [notification, ...state.notifications]
-          : state.notifications,
+        notifications: notification ? [notification, ...state.notifications] : state.notifications,
         toast: {
-          message: isCompleted ? '🎉 Assignment marked as completed!' : `Progress updated to ${status}.`,
+          message: isCompleted ? '🎉 Assignment marked as completed!' : `Progress updated to ${normalized === 'in-progress' ? 'In Progress' : 'Not Started'}.`,
           type: isCompleted ? 'success' : 'info',
         },
       };
     }
 
-    case ACTIONS.ADD_NOTIFICATION: {
-      return {
-        ...state,
-        notifications: [action.payload, ...state.notifications],
-      };
-    }
+    case ACTIONS.ADD_NOTIFICATION:
+      return { ...state, notifications: [action.payload, ...state.notifications] };
 
-    case ACTIONS.MARK_NOTIFICATION_READ: {
+    case ACTIONS.MARK_NOTIFICATION_READ:
       return {
         ...state,
         notifications: state.notifications.map(n =>
           n.id === action.payload ? { ...n, read: true } : n
         ),
       };
-    }
 
-    case ACTIONS.MARK_ALL_READ: {
+    case ACTIONS.MARK_ALL_READ:
+      return { ...state, notifications: state.notifications.map(n => ({ ...n, read: true })) };
+
+    case ACTIONS.UPDATE_NOTICE:
       return {
         ...state,
-        notifications: state.notifications.map(n => ({ ...n, read: true })),
+        notices: state.notices.map(n => n.id === action.payload.id ? { ...n, ...action.payload } : n),
       };
-    }
 
-    case ACTIONS.UPDATE_NOTICE: {
-      return {
-        ...state,
-        notices: state.notices.map(n =>
-          n.id === action.payload.id ? { ...n, ...action.payload } : n
-        ),
-      };
-    }
-
-    case ACTIONS.SET_TOAST: {
+    case ACTIONS.SET_TOAST:
       return { ...state, toast: action.payload };
-    }
 
-    case ACTIONS.CLEAR_TOAST: {
+    case ACTIONS.CLEAR_TOAST:
       return { ...state, toast: null };
-    }
 
     default:
       return state;
@@ -277,40 +297,143 @@ function appReducer(state, action) {
 }
 
 export function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(appReducer, null, getInitialState);
+  const [state, rawDispatch] = useReducer(appReducer, null, getInitialState);
 
-  // Persist state changes
+  useEffect(() => {
+    if (!USE_API) return;
+
+    let cancelled = false;
+    async function hydrate() {
+      try {
+        const [assignments] = await Promise.all([apiService.getAssignments()]);
+        if (cancelled) return;
+
+        const mappedAssignments = assignments.map(mapAssignmentFromApi);
+        const progress = mappedAssignments
+          .filter(a => a.progressStatus)
+          .map(a => ({
+            studentId: state.currentUser.id,
+            assignmentId: a.id,
+            status: a.progressStatus === 'completed' ? 'COMPLETED' : a.progressStatus === 'in-progress' ? 'IN_PROGRESS' : 'NOT_STARTED',
+            updatedAt: new Date().toISOString(),
+          }));
+
+        rawDispatch({
+          type: ACTIONS.HYDRATE_REMOTE,
+          payload: { assignments: mappedAssignments, studentProgress: progress },
+        });
+      } catch (error) {
+        rawDispatch({
+          type: ACTIONS.SET_TOAST,
+          payload: {
+            message: `API unavailable: ${error.message}. Using cached demo data.`,
+            type: 'error',
+          },
+        });
+        rawDispatch({ type: ACTIONS.HYDRATE_REMOTE, payload: {
+          assignments: state.assignments,
+          studentProgress: state.studentProgress,
+        }});
+      }
+    }
+
+    hydrate();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.currentUserKey]);
+
+  const dispatch = useCallback(async (action) => {
+    if (!USE_API) {
+      rawDispatch(action);
+      return;
+    }
+
+    try {
+      if (action.type === ACTIONS.ADD_ASSIGNMENT) {
+        const response = await apiService.createAssignment(mapAssignmentToApi(action.payload));
+        rawDispatch({
+          type: ACTIONS.ADD_ASSIGNMENT,
+          payload: action.payload,
+          serverRecord: mapAssignmentFromApi(response),
+        });
+        return;
+      }
+
+      if (action.type === ACTIONS.UPDATE_ASSIGNMENT) {
+        const response = await apiService.updateAssignment(
+          action.payload.id,
+          mapAssignmentToApi(action.payload)
+        );
+        rawDispatch({
+          type: ACTIONS.UPDATE_ASSIGNMENT,
+          payload: action.payload,
+          serverRecord: mapAssignmentFromApi(response),
+        });
+        return;
+      }
+
+      if (action.type === ACTIONS.DELETE_ASSIGNMENT) {
+        await apiService.deleteAssignment(action.payload);
+        rawDispatch(action);
+        return;
+      }
+
+      if (action.type === ACTIONS.UPDATE_STUDENT_PROGRESS) {
+        const response = await apiService.updateStudentProgress(
+          action.payload.assignmentId,
+          action.payload.status.toUpperCase().replace('-', '_')
+        );
+        rawDispatch({
+          ...action,
+          payload: {
+            ...action.payload,
+            status: response.status || action.payload.status,
+          },
+        });
+        return;
+      }
+
+      rawDispatch(action);
+    } catch (error) {
+      rawDispatch({
+        type: ACTIONS.SET_TOAST,
+        payload: {
+          message: error.status === 403
+            ? 'Permission denied.'
+            : `Request failed: ${error.message}`,
+          type: 'error',
+        },
+      });
+    }
+  }, []);
+
   useEffect(() => {
     saveState('currentUserKey', state.currentUserKey);
-    saveState('assignments_v2', state.assignments);
-    saveState('student_progress_v2', state.studentProgress);
-    saveState('notifications_v2', state.notifications);
-    saveState('notices_v2', state.notices);
-  }, [state.currentUserKey, state.assignments, state.studentProgress, state.notifications, state.notices]);
-
-  // Auto-clear toast
-  useEffect(() => {
-    if (state.toast) {
-      const timer = setTimeout(() => {
-        dispatch({ type: ACTIONS.CLEAR_TOAST });
-      }, 3200);
-      return () => clearTimeout(timer);
+    if (!USE_API || !state.isHydrating) {
+      saveState('assignments_v2', state.assignments);
+      saveState('student_progress_v2', state.studentProgress);
+      saveState('notifications_v2', state.notifications);
+      saveState('notices_v2', state.notices);
     }
+  }, [state.currentUserKey, state.assignments, state.studentProgress, state.notifications, state.notices, state.isHydrating]);
+
+  useEffect(() => {
+    if (!state.toast) return;
+    const timer = setTimeout(() => rawDispatch({ type: ACTIONS.CLEAR_TOAST }), 3200);
+    return () => clearTimeout(timer);
   }, [state.toast]);
 
-  /**
-   * Helper selector: Merges assignments with current student's decoupled progress.
-   * If current user is student, each assignment includes their specific status ('pending', 'in-progress', 'completed').
-   */
   const assignmentsWithProgress = useMemo(() => {
     const studentId = state.currentUser?.id;
-    return state.assignments.map(a => {
+
+    return state.assignments.map(assignment => {
       const progressRecord = state.studentProgress.find(
-        p => p.studentId === studentId && p.assignmentId === a.id
+        p => p.studentId === studentId && p.assignmentId === assignment.id
       );
+
       return {
-        ...a,
-        status: progressRecord?.status || 'pending',
+        ...assignment,
+        status: normalizeStatus(progressRecord?.status || assignment.progressStatus || 'NOT_STARTED'),
       };
     });
   }, [state.assignments, state.studentProgress, state.currentUser]);
@@ -325,6 +448,8 @@ export function AppProvider({ children }) {
         currentUser: state.currentUser,
         isStudent: state.currentUser?.role === ROLES.STUDENT,
         isTeacher: state.currentUser?.role === ROLES.TEACHER,
+        isDemoMode: state.isDemoMode,
+        isApiMode: USE_API,
       }}
     >
       {children}
@@ -334,10 +459,6 @@ export function AppProvider({ children }) {
 
 export function useApp() {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within AppProvider');
-  }
+  if (!context) throw new Error('useApp must be used within AppProvider');
   return context;
 }
-
-export { ACTIONS };
