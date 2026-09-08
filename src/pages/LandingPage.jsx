@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowDown, ArrowRight, BookOpen, Brain, Database, Code2, Layers3, Network } from 'lucide-react';
+import { ArrowDown, ArrowRight, BookOpen, Brain, Database, Network } from 'lucide-react';
 
 const books = [
   { title: 'ALGORITHMS', color: '#c7a4d8', left: '5%', top: '17%', rotate: '-12deg', scale: 0.88 },
