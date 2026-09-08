@@ -71,7 +71,7 @@ def _domain_call(fn, *args, **kwargs):
 
 @app.get("/api/health")
 def health():
-    return {"status": "healthy", "version": settings.VERSION, "mode": "demo"}
+    return {"status": "healthy", "version": settings.VERSION, "mode": db.mode}
 
 
 @app.get("/api/auth/me")
@@ -82,7 +82,7 @@ def get_me(authorization: str | None = Header(default=None)):
 @app.get("/api/subjects")
 def get_subjects(authorization: str | None = Header(default=None)):
     _domain_call(handle_get_me, authorization)
-    return db.subjects
+    return db.get_subjects()
 
 
 @app.get("/api/assignments")
