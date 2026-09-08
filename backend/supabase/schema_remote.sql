@@ -165,3 +165,63 @@ for select to authenticated using (true);
 
 -- Assignment mutations are intentionally left to the FastAPI service.
 -- The backend validates identity, role, and teacher_subjects authorization.
+
+
+-- ==============================================================================
+-- Assignment submissions + private Supabase Storage
+-- ==============================================================================
+create table if not exists public.assignment_submissions (
+  id uuid primary key default gen_random_uuid(),
+  assignment_id uuid not null references public.assignments(id) on delete cascade,
+  student_id text not null references public.users(id) on delete cascade,
+  file_name text not null,
+  file_path text not null,
+  file_type text not null default 'application/octet-stream',
+  file_size bigint not null check (file_size >= 0),
+  submitted_at timestamptz not null default now(),
+  version integer not null default 1 check (version > 0),
+  status text not null check (status in ('SUBMITTED','LATE')),
+  created_at timestamptz not null default now(),
+  unique (assignment_id, student_id, version)
+);
+
+create index if not exists idx_submissions_assignment_id on public.assignment_submissions(assignment_id);
+create index if not exists idx_submissions_student_id on public.assignment_submissions(student_id);
+create index if not exists idx_submissions_submitted_at on public.assignment_submissions(submitted_at);
+
+alter table public.assignment_submissions enable row level security;
+
+drop policy if exists "students can read own submissions" on public.assignment_submissions;
+create policy "students can read own submissions" on public.assignment_submissions
+for select to authenticated
+using (student_id = auth.uid()::text);
+
+drop policy if exists "students can insert own submissions" on public.assignment_submissions;
+create policy "students can insert own submissions" on public.assignment_submissions
+for insert to authenticated
+with check (
+  student_id = auth.uid()::text
+  and exists (
+    select 1 from public.users u
+    where u.id = auth.uid()::text and u.role = 'STUDENT'
+  )
+);
+
+drop policy if exists "teachers can read authorized submissions" on public.assignment_submissions;
+create policy "teachers can read authorized submissions" on public.assignment_submissions
+for select to authenticated
+using (
+  exists (
+    select 1
+    from public.users u
+    join public.teacher_subjects ts on ts.teacher_id = u.id
+    join public.assignments a on a.id = assignment_submissions.assignment_id
+    where u.id = auth.uid()::text
+      and u.role = 'TEACHER'
+      and ts.subject_id = a.subject_id
+  )
+);
+
+insert into storage.buckets (id, name, public)
+values ('assignment-submissions','assignment-submissions',false)
+on conflict (id) do nothing;
