@@ -93,6 +93,24 @@ insert into public.teacher_subjects (teacher_id,subject_id) values
 ('usr-teacher-vance','math301')
 on conflict do nothing;
 
+-- Seed demo assignments with stable UUIDs for the initial database.
+insert into public.assignments (id,subject_id,created_by,title,description,due_date,priority)
+values
+('11111111-1111-4111-8111-111111111111','cs301','usr-teacher-chen','Distributed Systems Lab 2','Implement a basic leader election algorithm using the Bully algorithm.',now() - interval '1 day','HIGH'),
+('22222222-2222-4222-8222-222222222222','econ201','usr-teacher-vance','Macroeconomics Problem Set 4','Solve problems on aggregate demand and supply curves.',now() + interval '3 hours','HIGH'),
+('33333333-3333-4333-8333-333333333333','math301','usr-teacher-vance','Calculus Vector Fields Homework','Complete exercises on vector fields, line integrals, and Green''s theorem.',now() + interval '1 day','MEDIUM'),
+('44444444-4444-4444-8444-444444444444','cs201','usr-teacher-chen','Algorithms Design Project Draft','Submit the first draft with pseudocode and complexity analysis.',now() + interval '4 days','MEDIUM'),
+('55555555-5555-4555-8555-555555555555','econ201','usr-teacher-vance','Macroeconomics Case Study','Analyze the 2008 financial crisis using the IS-LM framework.',now() - interval '3 days','MEDIUM')
+on conflict (id) do nothing;
+
+insert into public.student_assignment_progress (student_id,assignment_id,status)
+values
+('usr-student-alex','11111111-1111-4111-8111-111111111111','IN_PROGRESS'),
+('usr-student-alex','22222222-2222-4222-8222-222222222222','NOT_STARTED'),
+('usr-student-alex','33333333-3333-4333-8333-333333333333','NOT_STARTED'),
+('usr-student-alex','44444444-4444-4444-8444-444444444444','IN_PROGRESS')
+on conflict (student_id,assignment_id) do update set status=excluded.status;
+
 -- Seed notices. Demo assignment/progress rows are intentionally left to the
 -- application bootstrap so dates remain relative to the current day.
 insert into public.notices (id,title,summary,category,source,importance,read) values
