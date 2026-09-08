@@ -53,7 +53,7 @@ function seedDemoSubmissions() {
     fileSize: 46,
     submittedAt: isoNow(),
     version: 1,
-    status: 'SUBMITTED',
+    status: 'LATE',
     dataUrl: 'data:text/plain;base64,RGVtbyBzdWJtaXNzaW9uIGZyb20gQm9iIFNtaXRoIGZvciBUYXNrRm9yZ2Uu',
   };
   const seeded = [seed, ...rows];
