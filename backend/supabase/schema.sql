@@ -221,3 +221,67 @@ CREATE POLICY "Students can delete own progress"
     ON public.student_assignment_progress FOR DELETE
     TO authenticated
     USING (student_id = auth.uid());
+
+
+-- ==============================================================================
+-- 6. TABLE: assignment_submissions
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.assignment_submissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    assignment_id UUID NOT NULL REFERENCES public.assignments(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size BIGINT NOT NULL CHECK (file_size >= 0),
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    status TEXT NOT NULL CHECK (status IN ('SUBMITTED', 'LATE')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (assignment_id, student_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON public.assignment_submissions(assignment_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_student_id ON public.assignment_submissions(student_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at ON public.assignment_submissions(submitted_at);
+
+ALTER TABLE public.assignment_submissions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Students can read own submissions" ON public.assignment_submissions;
+CREATE POLICY "Students can read own submissions"
+    ON public.assignment_submissions FOR SELECT
+    TO authenticated
+    USING (student_id = auth.uid());
+
+DROP POLICY IF EXISTS "Students can insert own submissions" ON public.assignment_submissions;
+CREATE POLICY "Students can insert own submissions"
+    ON public.assignment_submissions FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        student_id = auth.uid()
+        AND EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = auth.uid() AND u.role = 'STUDENT'
+        )
+    );
+
+DROP POLICY IF EXISTS "Teachers can read submissions for authorized subjects" ON public.assignment_submissions;
+CREATE POLICY "Teachers can read submissions for authorized subjects"
+    ON public.assignment_submissions FOR SELECT
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM public.users u
+            JOIN public.teacher_subjects ts ON ts.teacher_id = u.id
+            JOIN public.assignments a ON a.id = assignment_submissions.assignment_id
+            WHERE u.id = auth.uid()
+              AND u.role = 'TEACHER'
+              AND ts.subject_id = a.subject_id
+        )
+    );
+
+-- Private storage bucket; file access is mediated by FastAPI.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('assignment-submissions', 'assignment-submissions', false)
+ON CONFLICT (id) DO NOTHING;
