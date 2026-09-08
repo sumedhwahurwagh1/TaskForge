@@ -103,10 +103,10 @@ export async function submitAssignmentFile({ assignmentId, studentId, assignment
   return apiService.uploadSubmission(assignmentId, file);
 }
 
-export async function getMyAssignmentSubmissions(assignmentId) {
+export async function getMyAssignmentSubmissions(assignmentId, studentId) {
   if (!isApiMode()) {
     return getDemoRows().filter(
-      row => row.assignmentId === assignmentId && row.studentId === 'usr-student-alex'
+      row => row.assignmentId === assignmentId && row.studentId === studentId
     );
   }
   return apiService.getMyAssignmentSubmissions(assignmentId);
