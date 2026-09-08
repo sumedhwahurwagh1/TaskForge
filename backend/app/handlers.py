@@ -15,6 +15,7 @@ from .database import db
 
 VALID_PRIORITIES = {"LOW", "MEDIUM", "HIGH"}
 VALID_STATUSES = {"NOT_STARTED", "IN_PROGRESS", "COMPLETED"}
+MAX_SUBMISSION_SIZE = 15 * 1024 * 1024
 
 
 def handle_get_me(auth_header: Optional[str]) -> Tuple[int, dict]:
@@ -169,3 +170,107 @@ def handle_update_student_progress(auth_header: Optional[str], assignment_id: st
         status=status.upper(),
     )
     return 200, progress
+
+
+def handle_create_submission(
+    auth_header: Optional[str],
+    assignment_id: str,
+    file_name: str,
+    file_type: str,
+    file_bytes: bytes,
+) -> Tuple[int, dict]:
+    """POST /api/assignments/{id}/submissions (Student only)."""
+    user = authenticate_token(auth_header)
+    require_role(user, ["STUDENT"])
+
+    assignment = db.get_assignment_by_id(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+
+    safe_name = file_name.split("/")[-1].split("\\")[-1].replace('"', "'").strip()
+    if not safe_name:
+        raise HTTPException(status_code=422, detail="A file is required.")
+    if not file_bytes:
+        raise HTTPException(status_code=422, detail="The selected file is empty.")
+    if len(file_bytes) > MAX_SUBMISSION_SIZE:
+        raise HTTPException(status_code=413, detail="File exceeds the 15 MB submission limit.")
+
+    created = db.create_submission(
+        assignment_id=assignment_id,
+        student_id=user["id"],
+        file_name=safe_name,
+        file_type=file_type or "application/octet-stream",
+        file_bytes=file_bytes,
+    )
+    return 201, created
+
+
+def handle_get_my_assignment_submissions(
+    auth_header: Optional[str],
+    assignment_id: str,
+) -> Tuple[int, list]:
+    user = authenticate_token(auth_header)
+    require_role(user, ["STUDENT"])
+    if not db.get_assignment_by_id(assignment_id):
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+    rows = [row for row in db.get_student_submissions(user["id"]) if row["assignment_id"] == assignment_id]
+    return 200, rows
+
+
+def handle_get_my_submissions(auth_header: Optional[str]) -> Tuple[int, list]:
+    user = authenticate_token(auth_header)
+    require_role(user, ["STUDENT"])
+    return 200, db.get_student_submissions(user["id"])
+
+
+def handle_get_teacher_assignment_submissions(
+    auth_header: Optional[str],
+    assignment_id: str,
+) -> Tuple[int, list]:
+    user = authenticate_token(auth_header)
+    require_role(user, ["TEACHER"])
+    assignment = db.get_assignment_by_id(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+    require_teacher_subject_access(user, assignment["subject_id"])
+    return 200, db.get_assignment_submissions(assignment_id)
+
+
+def handle_get_teacher_submission_summary(
+    auth_header: Optional[str],
+    assignment_id: str,
+) -> Tuple[int, dict]:
+    user = authenticate_token(auth_header)
+    require_role(user, ["TEACHER"])
+    assignment = db.get_assignment_by_id(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+    require_teacher_subject_access(user, assignment["subject_id"])
+    return 200, db.get_submission_summary(assignment_id)
+
+
+def handle_download_submission(
+    auth_header: Optional[str],
+    submission_id: str,
+) -> tuple[bytes, str, str]:
+    user = authenticate_token(auth_header)
+    submission = db.get_submission(submission_id)
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    assignment = db.get_assignment_by_id(submission["assignment_id"])
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+
+    if user["role"] == "STUDENT":
+        if submission["student_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden: You can only access your own submissions.")
+    elif user["role"] == "TEACHER":
+        require_teacher_subject_access(user, assignment["subject_id"])
+    else:
+        raise HTTPException(status_code=403, detail="Forbidden.")
+
+    try:
+        return db.get_submission_file(submission_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
