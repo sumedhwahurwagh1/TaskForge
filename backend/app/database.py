@@ -129,7 +129,7 @@ class Database:
             "file_size": 46,
             "submitted_at": _days_ago(0),
             "version": 1,
-            "status": "SUBMITTED",
+            "status": "LATE",
             "created_at": _days_ago(0),
         }
         self.submissions[demo_submission["id"]] = demo_submission
