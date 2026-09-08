@@ -13,6 +13,7 @@ Security model:
 
 import datetime as dt
 import os
+import uuid
 from typing import Dict, List, Optional
 
 try:
@@ -32,6 +33,9 @@ TEACHER_SUBJECTS = {
     "usr-teacher-chen": ["cs301", "cs201"],
     "usr-teacher-vance": ["econ201", "math301"],
 }
+
+SUBMISSION_BUCKET = "assignment-submissions"
+MAX_SUBMISSION_SIZE = 15 * 1024 * 1024
 
 SUBJECTS = [
     {"id": "cs301", "code": "CS 301", "name": "Distributed Systems", "color": "#6366f1"},
@@ -112,6 +116,24 @@ class Database:
         self.progress: Dict[str, dict] = {
             f"{p['student_id']}:{p['assignment_id']}": dict(p) for p in INITIAL_STUDENT_PROGRESS
         }
+        # Demo-mode submission metadata and file bytes.
+        self.submissions: Dict[str, dict] = {}
+        self.submission_files: Dict[str, bytes] = {}
+        demo_submission = {
+            "id": "sub-demo-bob-asg1-v1",
+            "assignment_id": "asg-1",
+            "student_id": "usr-student-bob",
+            "file_name": "bob-distributed-systems.txt",
+            "file_path": "demo/asg-1/usr-student-bob/v1-bob-distributed-systems.txt",
+            "file_type": "text/plain",
+            "file_size": 46,
+            "submitted_at": _days_ago(0),
+            "version": 1,
+            "status": "SUBMITTED",
+            "created_at": _days_ago(0),
+        }
+        self.submissions[demo_submission["id"]] = demo_submission
+        self.submission_files[demo_submission["id"]] = b"Demo submission from Bob Smith for TaskForge."
 
     @property
     def is_supabase(self) -> bool:
@@ -258,6 +280,187 @@ class Database:
             )
             return result.data[0] if result.data else None
         return self.progress.get(f"{student_id}:{assignment_id}")
+
+    def _parse_timestamp(self, value: str) -> dt.datetime:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(dt.timezone.utc)
+
+    def _submission_status(self, assignment_id: str, submitted_at: dt.datetime) -> str:
+        assignment = self.get_assignment_by_id(assignment_id)
+        if not assignment:
+            return "SUBMITTED"
+        due = self._parse_timestamp(assignment["due_date"])
+        return "LATE" if submitted_at > due else "SUBMITTED"
+
+    def get_students(self) -> List[dict]:
+        if self.is_supabase:
+            result = self._remote(
+                "users",
+                lambda q: q.select("id,name,email,role").eq("role", "STUDENT").order("name").execute(),
+            )
+            return result.data or []
+        return [
+            {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}
+            for user in self.users.values()
+            if user.get("role") == "STUDENT"
+        ]
+
+    def create_submission(self, assignment_id: str, student_id: str, file_name: str, file_type: str, file_bytes: bytes) -> dict:
+        submitted_at = dt.datetime.now(dt.timezone.utc)
+        safe_name = os.path.basename(file_name).replace('"', "'")
+        if self.is_supabase:
+            latest = self._remote(
+                "assignment_submissions",
+                lambda q: q.select("version").eq("assignment_id", assignment_id).eq("student_id", student_id).order("version", desc=True).limit(1).execute(),
+            )
+            version = int(latest.data[0]["version"]) + 1 if latest.data else 1
+            extension = os.path.splitext(safe_name)[1].lower()
+            file_path = f"{assignment_id}/{student_id}/v{version}-{uuid.uuid4().hex}{extension}"
+            try:
+                self.client.storage.from_(SUBMISSION_BUCKET).upload(
+                    file_path,
+                    file_bytes,
+                    {"content-type": file_type or "application/octet-stream", "upsert": "false"},
+                )
+            except Exception as exc:
+                raise RuntimeError(f"Supabase Storage upload failed: {exc}") from exc
+            payload = {
+                "assignment_id": assignment_id,
+                "student_id": student_id,
+                "file_name": safe_name,
+                "file_path": file_path,
+                "file_type": file_type or "application/octet-stream",
+                "file_size": len(file_bytes),
+                "submitted_at": submitted_at.isoformat(),
+                "version": version,
+                "status": self._submission_status(assignment_id, submitted_at),
+            }
+            result = self._remote("assignment_submissions", lambda q: q.insert(payload).execute())
+            if not result.data:
+                raise RuntimeError("Supabase did not return the submitted file metadata")
+            return result.data[0]
+
+        submission_id = f"sub-{uuid.uuid4().hex}"
+        version = 1 + max(
+            [int(item.get("version", 0)) for item in self.submissions.values()
+             if item["assignment_id"] == assignment_id and item["student_id"] == student_id],
+            default=0,
+        )
+        extension = os.path.splitext(safe_name)[1].lower()
+        file_path = f"demo/{assignment_id}/{student_id}/v{version}-{uuid.uuid4().hex}{extension}"
+        record = {
+            "id": submission_id,
+            "assignment_id": assignment_id,
+            "student_id": student_id,
+            "file_name": safe_name,
+            "file_path": file_path,
+            "file_type": file_type or "application/octet-stream",
+            "file_size": len(file_bytes),
+            "submitted_at": submitted_at.isoformat(),
+            "version": version,
+            "status": self._submission_status(assignment_id, submitted_at),
+            "created_at": submitted_at.isoformat(),
+        }
+        self.submissions[submission_id] = record
+        self.submission_files[submission_id] = file_bytes
+        return record
+
+    def get_submission(self, submission_id: str) -> Optional[dict]:
+        if self.is_supabase:
+            result = self._remote("assignment_submissions", lambda q: q.select("*").eq("id", submission_id).limit(1).execute())
+            return result.data[0] if result.data else None
+        return self.submissions.get(submission_id)
+
+    def get_student_submissions(self, student_id: str) -> List[dict]:
+        if self.is_supabase:
+            result = self._remote("assignment_submissions", lambda q: q.select("*").eq("student_id", student_id).order("submitted_at", desc=True).execute())
+            rows = [dict(row) for row in (result.data or [])]
+        else:
+            rows = [dict(row) for row in self.submissions.values() if row["student_id"] == student_id]
+        for row in rows:
+            assignment = self.get_assignment_by_id(str(row["assignment_id"]))
+            row["assignment_title"] = assignment["title"] if assignment else "Assignment"
+            row["subject_id"] = assignment["subject_id"] if assignment else None
+            row["due_date"] = assignment["due_date"] if assignment else None
+        return sorted(rows, key=lambda row: row.get("submitted_at", ""), reverse=True)
+
+    def get_assignment_submissions(self, assignment_id: str) -> List[dict]:
+        if self.is_supabase:
+            result = self._remote("assignment_submissions", lambda q: q.select("*").eq("assignment_id", assignment_id).order("version").execute())
+            rows = [dict(row) for row in (result.data or [])]
+        else:
+            rows = [dict(row) for row in self.submissions.values() if row["assignment_id"] == assignment_id]
+        users = {user["id"]: user for user in self.get_students()}
+        for row in rows:
+            student = users.get(row["student_id"])
+            row["student_name"] = student["name"] if student else row["student_id"]
+            row["student_email"] = student["email"] if student else ""
+        return sorted(rows, key=lambda row: (row["student_id"], int(row.get("version", 0))), reverse=True)
+
+    def get_submission_summary(self, assignment_id: str) -> dict:
+        assignment = self.get_assignment_by_id(assignment_id)
+        if not assignment:
+            return {"assignment_id": assignment_id, "total_students": 0, "submitted": 0, "not_submitted": 0, "late": 0, "submission_rate": 0, "students": []}
+        students = self.get_students()
+        submissions = self.get_assignment_submissions(assignment_id)
+        latest = {}
+        for row in submissions:
+            current = latest.get(row["student_id"])
+            if current is None or int(row.get("version", 0)) > int(current.get("version", 0)):
+                latest[row["student_id"]] = row
+        student_rows = []
+        submitted_count = 0
+        late_count = 0
+        for student in students:
+            row = latest.get(student["id"])
+            if row:
+                submitted_count += 1
+                if row["status"] == "LATE":
+                    late_count += 1
+                student_rows.append({
+                    "student_id": student["id"],
+                    "student_name": student["name"],
+                    "student_email": student["email"],
+                    "status": row["status"],
+                    "submitted_at": row["submitted_at"],
+                    "latest_submission": row,
+                })
+            else:
+                student_rows.append({
+                    "student_id": student["id"],
+                    "student_name": student["name"],
+                    "student_email": student["email"],
+                    "status": "NOT_SUBMITTED",
+                    "submitted_at": None,
+                    "latest_submission": None,
+                })
+        total = len(students)
+        return {
+            "assignment_id": assignment_id,
+            "total_students": total,
+            "submitted": submitted_count,
+            "not_submitted": total - submitted_count,
+            "late": late_count,
+            "submission_rate": round((submitted_count / total) * 100, 1) if total else 0,
+            "students": student_rows,
+        }
+
+    def get_submission_file(self, submission_id: str) -> tuple[bytes, str, str]:
+        submission = self.get_submission(submission_id)
+        if not submission:
+            raise KeyError("Submission not found")
+        if self.is_supabase:
+            try:
+                content = self.client.storage.from_(SUBMISSION_BUCKET).download(submission["file_path"])
+            except Exception as exc:
+                raise RuntimeError(f"Supabase Storage download failed: {exc}") from exc
+            return content, submission.get("file_type") or "application/octet-stream", submission["file_name"]
+        content = self.submission_files.get(submission_id)
+        if content is None:
+            raise KeyError("Submission file content not found")
+        return content, submission.get("file_type") or "application/octet-stream", submission["file_name"]
 
     def get_notices(self) -> List[dict]:
         if self.is_supabase:
