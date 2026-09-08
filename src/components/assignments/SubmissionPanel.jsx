@@ -69,7 +69,7 @@ export default function SubmissionPanel({ assignment }) {
   }, [assignment.id, assignment.title, isStudent, isTeacher, canManage]);
 
   async function refreshStudent() {
-    const rows = await getMyAssignmentSubmissions(assignment.id);
+    const rows = await getMyAssignmentSubmissions(assignment.id, currentUser.id);
     setSubmissions(rows || []);
   }
 
