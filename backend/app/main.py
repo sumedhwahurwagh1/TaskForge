@@ -148,18 +148,6 @@ def update_progress(
         payload.model_dump(),
     )
 
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "backend.app.main:app",
-        host="0.0.0.0",
-        port=int(settings.PORT),
-        reload=False,
-    )
-
-
 @app.post("/api/assignments/{assignment_id}/submissions", status_code=201)
 async def create_submission(
     assignment_id: str,
@@ -220,4 +208,14 @@ def download_submission(
         content=content,
         media_type=content_type,
         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "backend.app.main:app",
+        host="0.0.0.0",
+        port=int(settings.PORT),
+        reload=False,
     )
