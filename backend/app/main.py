@@ -6,7 +6,8 @@ can be exercised without external credentials. Production authentication should
 use Supabase Auth JWTs, while the same route-level RBAC rules remain in place.
 """
 
-from fastapi import FastAPI, Header, HTTPException as FastAPIHTTPException
+from fastapi import FastAPI, File, Header, HTTPException as FastAPIHTTPException, UploadFile
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,12 @@ from .handlers import (
     handle_update_assignment,
     handle_delete_assignment,
     handle_update_student_progress,
+    handle_create_submission,
+    handle_get_my_assignment_submissions,
+    handle_get_my_submissions,
+    handle_get_teacher_assignment_submissions,
+    handle_get_teacher_submission_summary,
+    handle_download_submission,
 )
 
 
@@ -150,4 +157,67 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(settings.PORT),
         reload=False,
+    )
+
+
+@app.post("/api/assignments/{assignment_id}/submissions", status_code=201)
+async def create_submission(
+    assignment_id: str,
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
+    content = await file.read()
+    code, data = _domain_call(
+        handle_create_submission,
+        authorization,
+        assignment_id,
+        file.filename or "",
+        file.content_type or "application/octet-stream",
+        content,
+    )
+    return data
+
+
+@app.get("/api/assignments/{assignment_id}/submissions/me")
+def get_my_assignment_submissions(
+    assignment_id: str,
+    authorization: str | None = Header(default=None),
+):
+    return _domain_call(handle_get_my_assignment_submissions, authorization, assignment_id)[1]
+
+
+@app.get("/api/submissions/me")
+def get_my_submissions(
+    authorization: str | None = Header(default=None),
+):
+    return _domain_call(handle_get_my_submissions, authorization)[1]
+
+
+@app.get("/api/assignments/{assignment_id}/submissions")
+def get_teacher_assignment_submissions(
+    assignment_id: str,
+    authorization: str | None = Header(default=None),
+):
+    return _domain_call(handle_get_teacher_assignment_submissions, authorization, assignment_id)[1]
+
+
+@app.get("/api/assignments/{assignment_id}/submission-summary")
+def get_teacher_submission_summary(
+    assignment_id: str,
+    authorization: str | None = Header(default=None),
+):
+    return _domain_call(handle_get_teacher_submission_summary, authorization, assignment_id)[1]
+
+
+@app.get("/api/submissions/{submission_id}/download")
+def download_submission(
+    submission_id: str,
+    authorization: str | None = Header(default=None),
+):
+    content, content_type, file_name = _domain_call(handle_download_submission, authorization, submission_id)
+    safe_name = file_name.replace('"', "'").replace("\\", "_").replace("/", "_")
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
     )
